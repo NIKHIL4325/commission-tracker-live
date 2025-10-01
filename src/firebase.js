@@ -19,5 +19,3 @@ const app = initializeApp(firebaseConfig);
 // Export Auth and Firestore services
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-
-// The unnecessary error-checking logic has been removed.
