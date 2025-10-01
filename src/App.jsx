@@ -16,11 +16,11 @@ import {
   serverTimestamp,
   query,
   where,
-  orderBy
 } from 'firebase/firestore';
 
 // --- 1. FIREBASE CONFIGURATION ---
 // These keys must be set as environment variables in your Vercel project settings.
+// Vercel injects these variables during the build process.
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
@@ -31,17 +31,15 @@ const firebaseConfig = {
   measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID,
 };
 
-// Check if a required key is missing (Project ID is the most crucial for safety)
-// We will let the app continue, and if Firestore/Auth fails, Firebase will log the error.
-// We removed the logic that prevented the app from loading completely.
-const isConfigAvailable = !!firebaseConfig.projectId;
-
+// Check if a required key is present to enable Firebase features
+const isConfigAvailable = !!firebaseConfig.projectId && !!firebaseConfig.apiKey;
 
 let app, db, auth;
 
-// Only attempt initialization if the keys are present
+// Only attempt initialization if the keys are available
 if (isConfigAvailable) {
     try {
+        // Initialize Firebase services
         app = initializeApp(firebaseConfig);
         db = getFirestore(app);
         auth = getAuth(app);
@@ -96,7 +94,7 @@ const TicketCard = React.memo(({ ticket, user, onUpdate, onDelete }) => {
             <option value="In Progress">In Progress</option>
             <option value="Resolved">Resolved</option>
         </select>
-    ), [ticket.status, handleStatusChange]);
+    ), [ticket.status, onUpdate]);
 
 
     return (
@@ -142,27 +140,38 @@ const TicketCard = React.memo(({ ticket, user, onUpdate, onDelete }) => {
 // === MAIN APPLICATION COMPONENT ===
 
 function App() {
-    // CRITICAL FIX: If config is not available, we display a helpful message, 
-    // but allow the component to render the body safely.
-    if (!isConfigAvailable || !auth || !db) {
+    // --- CRITICAL CONFIGURATION CHECK ---
+    // If config is not available, we display a helpful message, 
+    // but the component itself is guaranteed to run.
+    if (!isConfigAvailable) {
         return <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-red-50 text-red-800 border-t-4 border-red-500">
             <h2 className="text-2xl font-bold mb-3">Configuration Error</h2>
             <p className="text-center">
                 Firebase keys are missing in the Vercel Environment Variables. Please set 
                 <code className="font-mono bg-red-200 px-1 rounded mx-1">REACT_APP_FIREBASE_*</code> 
-                variables for the deployment to function.
+                variables and deploy again.
             </p>
         </div>;
     }
     
+    // We confirm existence here because we checked in the global scope
+    if (!auth || !db) {
+         return <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-yellow-50 text-yellow-800 border-t-4 border-yellow-500">
+            <h2 className="text-2xl font-bold mb-3">Initialization Error</h2>
+            <p className="text-center">
+                Firebase services could not be initialized despite configuration being present. Check console for details.
+            </p>
+        </div>;
+    }
+
     const [tickets, setTickets] = useState([]);
     const [user, setUser] = useState(null);
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('My Tickets'); 
+    const [view, setView] = useState('My Tickets'); // 'My Tickets', 'All Tickets', 'Stats'
     
-    // Hardcoded path used in security rules
+    // Hardcoded path used in security rules (using a generic app id since __app_id is not available)
     const BASE_COLLECTION_PATH = 'artifacts/default-app-id/public/data/tickets';
 
 
@@ -170,7 +179,7 @@ function App() {
     useEffect(() => {
         const authenticateUser = async () => {
             try {
-                // auth is guaranteed to exist here due to the check above
+                // auth is guaranteed to exist here
                 await signInAnonymously(auth); 
             } catch (error) {
                 console.error("Authentication failed:", error);
@@ -190,7 +199,7 @@ function App() {
 
     // 2. DATA LISTENER (Real-time updates)
     useEffect(() => {
-        if (!user || !db) return; // db is guaranteed, but good practice to check user
+        if (!user || !db) return; // Wait for user authentication
         
         let ticketsQuery;
         
@@ -198,21 +207,21 @@ function App() {
             ticketsQuery = query(
                 collection(db, BASE_COLLECTION_PATH),
                 where('userId', '==', user.uid),
-                // NOTE: removed orderBy to avoid Firestore index errors. Data will be sorted client-side.
             );
         } else {
-            ticketsQuery = query(collection(db, BASE_COLLECTION_PATH)
-                // NOTE: removed orderBy to avoid Firestore index errors. Data will be sorted client-side.
-            );
+            ticketsQuery = query(collection(db, BASE_COLLECTION_PATH));
         }
 
+        // NOTE: Firestore query sorting is removed to avoid index errors. Data is sorted client-side.
         const unsubscribeFirestore = onSnapshot(ticketsQuery, (snapshot) => {
             const fetchedTickets = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             }));
+            
             // Client-side sorting by creation time (descending)
             fetchedTickets.sort((a, b) => {
+                // Safely handle potential missing serverTimestamp during initial load
                 const timeA = a.createdAt?.toMillis() || 0;
                 const timeB = b.createdAt?.toMillis() || 0;
                 return timeB - timeA;
@@ -224,7 +233,7 @@ function App() {
         });
 
         return () => unsubscribeFirestore();
-    }, [user, view]); 
+    }, [user, view]); // Reruns when user or view changes
 
     // === CRUD OPERATIONS ===
 
@@ -414,7 +423,7 @@ function App() {
 
                     {/* New Ticket Button (only show in list views) */}
                     {(view === 'My Tickets' || view === 'All Tickets') && (
-                          <a href="#new-ticket-form" className="flex items-center space-x-2 px-5 py-2 bg-green-500 text-white font-semibold rounded-xl shadow-lg hover:bg-green-600 transition duration-150 transform hover:scale-105">
+                        <a href="#new-ticket-form" className="flex items-center space-x-2 px-5 py-2 bg-green-500 text-white font-semibold rounded-xl shadow-lg hover:bg-green-600 transition duration-150 transform hover:scale-105">
                             <span className="text-xl">➕</span>
                             <span>Create New Ticket</span>
                         </a>
@@ -451,7 +460,6 @@ function App() {
                             </label>
                             <textarea
                                 id="description"
-                                type="text"
                                 value={description}
                                 onChange={(e) => setDescription(e.target.value)}
                                 placeholder="Provide all necessary information for resolution..."
