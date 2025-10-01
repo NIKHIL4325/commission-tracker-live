@@ -1,0 +1,17 @@
+/*
+This file contains the Tailwind CSS directives required for the build process
+to detect and apply the utility classes used throughout the React components.
+*/
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+Setting the base font for the entire application.
+*/
+body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Inter', sans-serif;
+}
