@@ -2,7 +2,8 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
-// Your web app's Firebase configuration is loaded from environment variables
+// This configuration is designed to read the Firebase keys from Vercel's 
+// Environment Variables (which use the REACT_APP_ prefix).
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
@@ -19,6 +20,5 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-// NOTE: Since the environment variables are correctly set in Vercel,
-// we are removing the explicit local check that was causing the
-// "Firebase keys are missing" message to display incorrectly.
+// NOTE: The previous hardcoded error check that incorrectly referenced "Netlify" 
+// has been removed, as the keys are now correctly set in Vercel.
