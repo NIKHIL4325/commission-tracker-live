@@ -1,6 +1,3 @@
-// FORCING VERIFIED DEPLOYMENT
-import React from 'react';
-// ... rest of your App.jsx code ...
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
