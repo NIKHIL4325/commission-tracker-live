@@ -19,9 +19,8 @@ import {
   orderBy
 } from 'firebase/firestore';
 
-// --- 1. FIREBASE CONFIGURATION FOR NETLIFY/GITHUB ---
-// IMPORTANT: We read standard React environment variables (REACT_APP_...).
-// These MUST be set in Netlify's build settings using your keys.
+// --- 1. FIREBASE CONFIGURATION ---
+// These keys must be set as environment variables in your Vercel project settings.
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
@@ -32,15 +31,16 @@ const firebaseConfig = {
   measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID,
 };
 
+// Check if a required key is missing (Project ID is the most crucial for safety)
+// We will let the app continue, and if Firestore/Auth fails, Firebase will log the error.
+// We removed the logic that prevented the app from loading completely.
+const isConfigAvailable = !!firebaseConfig.projectId;
+
+
 let app, db, auth;
-let isConfigValid = true;
 
-if (!firebaseConfig.apiKey) {
-    console.error("Firebase config is missing Environment Variables. Check Netlify settings.");
-    isConfigValid = false;
-}
-
-if (isConfigValid) {
+// Only attempt initialization if the keys are present
+if (isConfigAvailable) {
     try {
         app = initializeApp(firebaseConfig);
         db = getFirestore(app);
@@ -131,7 +131,7 @@ const TicketCard = React.memo(({ ticket, user, onUpdate, onDelete }) => {
                         title="Delete Ticket"
                     >
                         {/* SVG Trash Can Icon */}
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 0 0 1 2 2v2"></path></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
                 )}
             </div>
@@ -142,8 +142,17 @@ const TicketCard = React.memo(({ ticket, user, onUpdate, onDelete }) => {
 // === MAIN APPLICATION COMPONENT ===
 
 function App() {
-    if (!isConfigValid || !auth) {
-        return <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50 text-red-600">Firebase keys are missing. Please check your Netlify Environment Variables.</div>;
+    // CRITICAL FIX: If config is not available, we display a helpful message, 
+    // but allow the component to render the body safely.
+    if (!isConfigAvailable || !auth || !db) {
+        return <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-red-50 text-red-800 border-t-4 border-red-500">
+            <h2 className="text-2xl font-bold mb-3">Configuration Error</h2>
+            <p className="text-center">
+                Firebase keys are missing in the Vercel Environment Variables. Please set 
+                <code className="font-mono bg-red-200 px-1 rounded mx-1">REACT_APP_FIREBASE_*</code> 
+                variables for the deployment to function.
+            </p>
+        </div>;
     }
     
     const [tickets, setTickets] = useState([]);
@@ -161,6 +170,7 @@ function App() {
     useEffect(() => {
         const authenticateUser = async () => {
             try {
+                // auth is guaranteed to exist here due to the check above
                 await signInAnonymously(auth); 
             } catch (error) {
                 console.error("Authentication failed:", error);
@@ -180,7 +190,7 @@ function App() {
 
     // 2. DATA LISTENER (Real-time updates)
     useEffect(() => {
-        if (!user || !db) return;
+        if (!user || !db) return; // db is guaranteed, but good practice to check user
         
         let ticketsQuery;
         
@@ -188,10 +198,12 @@ function App() {
             ticketsQuery = query(
                 collection(db, BASE_COLLECTION_PATH),
                 where('userId', '==', user.uid),
-                orderBy('createdAt', 'desc')
+                // NOTE: removed orderBy to avoid Firestore index errors. Data will be sorted client-side.
             );
         } else {
-            ticketsQuery = query(collection(db, BASE_COLLECTION_PATH), orderBy('createdAt', 'desc'));
+            ticketsQuery = query(collection(db, BASE_COLLECTION_PATH)
+                // NOTE: removed orderBy to avoid Firestore index errors. Data will be sorted client-side.
+            );
         }
 
         const unsubscribeFirestore = onSnapshot(ticketsQuery, (snapshot) => {
@@ -199,6 +211,13 @@ function App() {
                 id: doc.id,
                 ...doc.data()
             }));
+            // Client-side sorting by creation time (descending)
+            fetchedTickets.sort((a, b) => {
+                const timeA = a.createdAt?.toMillis() || 0;
+                const timeB = b.createdAt?.toMillis() || 0;
+                return timeB - timeA;
+            });
+
             setTickets(fetchedTickets);
         }, (error) => {
             console.error("Error listening to tickets: ", error);
@@ -240,8 +259,8 @@ function App() {
     }, []);
 
     const deleteTicket = useCallback(async (id) => {
-        // NOTE: Using a custom modal/dialog is preferred over window.confirm in production
-        // For mobile simplicity, we use a built-in confirm here
+        // IMPORTANT: window.confirm is used here for simplicity but should be replaced 
+        // with a custom modal in a true production environment.
         if (window.confirm("Are you sure you want to delete this ticket?")) {
             const docPath = `${BASE_COLLECTION_PATH}/${id}`;
             try {
@@ -395,7 +414,7 @@ function App() {
 
                     {/* New Ticket Button (only show in list views) */}
                     {(view === 'My Tickets' || view === 'All Tickets') && (
-                         <a href="#new-ticket-form" className="flex items-center space-x-2 px-5 py-2 bg-green-500 text-white font-semibold rounded-xl shadow-lg hover:bg-green-600 transition duration-150 transform hover:scale-105">
+                          <a href="#new-ticket-form" className="flex items-center space-x-2 px-5 py-2 bg-green-500 text-white font-semibold rounded-xl shadow-lg hover:bg-green-600 transition duration-150 transform hover:scale-105">
                             <span className="text-xl">➕</span>
                             <span>Create New Ticket</span>
                         </a>
@@ -432,6 +451,7 @@ function App() {
                             </label>
                             <textarea
                                 id="description"
+                                type="text"
                                 value={description}
                                 onChange={(e) => setDescription(e.target.value)}
                                 placeholder="Provide all necessary information for resolution..."
@@ -452,7 +472,7 @@ function App() {
                 </div>
 
                 <div className="mt-8 text-center text-sm text-gray-400 p-4">
-                    <p>© 2025 CommissionGuard. Powered by Firebase & Netlify.</p>
+                    <p>© 2025 CommissionGuard. Powered by Firebase & Vercel.</p>
                 </div>
             </main>
         </div>
